@@ -1,0 +1,7 @@
+Makefile
+/.computed/
+/simulations/*.anf
+/simulations/.*
+/simulations/results/
+/out/
+
