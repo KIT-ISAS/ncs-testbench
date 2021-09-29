@@ -1,8 +1,12 @@
 #!/bin/bash
+#
+# WARNING:
+# you must run this script from the folder where your .ini-file is located
+# otherwise, relative path references in your .ini-file pointing to MATLAB configurations will break
 
-cd `dirname $0`
+SCRIPTDIR="$(dirname $0)"
 
-BINARY=$( ls -1c ../src/ncs-testbench* | head -n 1 )
+BINARY=$( ls -1c "$SCRIPTDIR/../src/ncs-testbench"* | head -n 1 )
 
 if [ -z "$BINARY" ]; then
 	echo "error: ncs-testbench binary not found"
@@ -22,6 +26,6 @@ ASAN="env LD_PRELOAD=$(mlocate --regex 'libasan.so.4$') ASAN_OPTIONS=halt_on_err
 #TOOL="$VALGRIND"
 #TOOL="$ASAN"
 
-$TOOL "$BINARY" -n ../src:../networks:.:../../inet/examples:../../inet/src:../../libncs_omnet/src:../../matlab-scheduler/src -l ../../inet/src/INET --debug-on-errors=false $*
+$TOOL "$BINARY" -n "${SCRIPTDIR}/../src:${SCRIPTDIR}/../networks:${SCRIPTDIR}/.:${SCRIPTDIR}/../../inet/examples:${SCRIPTDIR}/../../inet/src:${SCRIPTDIR}/../../libncs_omnet/src:${SCRIPTDIR}/../../matlab-scheduler/src" -l "${SCRIPTDIR}/../../inet/src/INET" --debug-on-errors=false $*
 
 # for shared lib, use: opp_run -l ../src/ncs_testbench -n .:../src $*
