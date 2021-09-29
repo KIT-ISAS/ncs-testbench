@@ -15,17 +15,17 @@
 
 // Created: 2016-11-16 for project ncs-testbench
 
-package ncs_testbench.simulations;
+package ncs_testbench.networks;
 
-import inet.node.inet.Router;
+import inet.node.ipv6.Router6;
 import libncs_omnet.util.AppTransportHost;
 import inet.applications.tcpapp.TCPGenericSrvApp;
 import inet.applications.tcpapp.TCPSessionApp;
 import inet.applications.tcpapp.TCPSrvHostApp;
 import inet.applications.tcpapp.TelnetApp;
-import inet.networklayer.configurator.ipv4.IPv4NetworkConfigurator;
+import inet.networklayer.configurator.ipv6.FlatNetworkConfigurator6;
+import libncs_omnet.OracleCC.OracleCCCoordinator;
 import inet.node.inet.StandardHost;
-import libncs_omnet.NcsManager;
 import libncs_omnet.NcsInstance;
 import libncs_omnet.NcsHost;
 import ned.DatarateChannel;
@@ -36,26 +36,33 @@ network SimpleNcs
     @display("bgb=789,296");
 
     // Tuneables
+    bool useOracleCC = default(false);
+    
     bool bottleneckSensor = default(true); // true: controller<->sensor is bottleneck
     bool bottleneckActor = default(!bottleneckSensor); // else controller<->actuator
-    
-    int defaultLineRate @unit("bps") = default(100Mbps);
-    int bottleneckLineRate @unit("bps") = default(10Mbps);
+
+    double defaultLineRate @unit("bps") = default(100Mbps);
+    double bottleneckLineRate @unit("bps") = default(10Mbps);
 
     int ethOverhead @unit("Byte") = default(26B);
     int pppOverhead @unit("Byte") = default(7B);
-    int ipOverhead @unit("Byte") = default(20B);
-    int tcpOverhead @unit("Byte") = default((32B + 2B)); // 32 Byte TCP + 2 Byte TCPTransport
+    int ipOverhead @unit("Byte") = default(40B);
+    int tcpOverhead @unit("Byte") = default(20B);
+    int tcpTransportOverhead @unit("Byte") = default(4B); // 4 Byte TCPTransport prefix
     int udpOverhead @unit("Byte") = default(8B);
 
     int mtu @unit("byte") = default(1500B);
 
     // Cross Traffic is TCP (true) or UDP (false)
     bool crossTcp = default(true);
-    int crossLineRate @unit("bps") = default(defaultLineRate);
+    double crossLineRate @unit("bps") = default(defaultLineRate);
     volatile double crossFlowRate @unit("bps") = default(0.5Mbps);
-    int crossPacketLength @unit("Byte") = default(mtu);
+    int crossPacketLength @unit("Byte") = default(mtu + pppOverhead);
     int crossPayloadLength @unit("Byte") = crossPacketLength - pppOverhead - ipOverhead - (crossTcp ? tcpOverhead : udpOverhead);
+
+    double networkSetupTime @unit("s") = default(20s);
+    double ncsStartupDelay @unit("s") = default(30s);
+    double crossStartTime @unit("s") = default(40s);
 
     //
     // PPP Buffer/Queue setup
@@ -67,6 +74,8 @@ network SimpleNcs
     // Router configuration
     r*.ppp[*].queue.frameCapacity = default(50);
 
+    // NCS network startup delay
+    ncs.ncsContext.networkStartupPollInterval = networkSetupTime;
 
     //
     // TCP Cross Traffic
@@ -76,9 +85,10 @@ network SimpleNcs
     crossHost*.tcpTransport.datagramService = true;
     crossHost*.transportAppType = "TrafGenApp";
 
+    crossHost*.app.redir.tOpen = networkSetupTime;
     crossHost*.app.gen.generateRaw = true;
-    crossHost*.app.gen.startTime = default(20s); // time of sending the first packet
-    crossHost*.app.gen.stopTime = default(50s);  // time of finishing sending, negative values mean forever
+    crossHost*.app.gen.startTime = default(crossStartTime); // time of sending the first packet
+    crossHost*.app.gen.stopTime = default(-1s);  // time of finishing sending, negative values mean forever
     crossHost*.app.gen.packetLength = default(crossPayloadLength);
     // crossHost*.app.gen.numPackets = default(-1); // max number of packets to generate, -1 means forever
     crossHost*.app.gen.sendInterval = default(dropUnit(crossPacketLength) * 8 / dropUnit(crossFlowRate) *1s); // may be a random value, e.g. exponential(1)
@@ -86,6 +96,12 @@ network SimpleNcs
     //crossHost*.app.redir.connectPort = 1000;
     //crossHost*.app.redir.tOpen = 0s;
     //crossHost*.app.redir.tClose = default(-1s);
+
+    crossHost*.tcp.mss = dropUnit(crossPayloadLength);
+    crossHost*.tcp.windowScalingSupport = true;
+    crossHost*.tcp.advertisedWindow = 2^10 * dropUnit(mtu);
+    crossHost*.tcp.limitedTransmitEnabled = true;
+    //**.tcp.sackSupport = true; # disabled because implementation is buggy
 
     types:
         channel BottleneckLinkChannel extends ned.DatarateChannel
@@ -128,23 +144,25 @@ network SimpleNcs
             @defaultname(crossLinkB);
         }
     submodules:
-        // Responsible to set up the MATLAB part of the simulation
-        NcsManager: NcsManager {
-            @display("p=45,27");
-        }
-        r1: Router {
+        ic1: Router6 {
             @display("p=284,221");
         }
-        r2: Router {
+        ic2: Router6 {
             @display("p=509,221");
         }
         // A NCS
         ncs: NcsInstance {
             @display("p=397,123");
+
+            ncsContext.startupDelay = default(ncsStartupDelay);
         }
         // Configure some routes automagically
-        configurator: IPv4NetworkConfigurator {
+        configurator: FlatNetworkConfigurator6 {
             @display("p=45,92");
+        }
+        // OracleCC managing instance
+        oracleCCCoordinator: OracleCCCoordinator if useOracleCC {
+            @display("p=45,189");
         }
         // Two hosts responsible for sending/receiving cross-traffic
         crossHostA: AppTransportHost {
@@ -160,20 +178,20 @@ network SimpleNcs
     connections allowunconnected:
 
         // Bottleneck between routers r1 and r2
-        r1.pppg++ <--> BottleneckLink <--> r2.pppg++;
-        
+        ic1.pppg++ <--> BottleneckLink <--> ic2.pppg++;
+
         // Each NCS has one connection for Actor, Controller an Sensor.
         // The graphical rendering looks a bit odd, but the scenario can be setup and configured easier this way
-        
+
         // Both sensor and actor can be connected to either the same router as the Controller (r1),
         // or to the other router accross the bottleneck link (r2)
-        ncs.gActor <--> ActorLink <--> r1.pppg++ if !bottleneckActor;
-        ncs.gActor <--> ActorLink <--> r2.pppg++ if bottleneckActor;
-        ncs.gController <--> ControllerLink <--> r1.pppg++;
-        ncs.gSensor <--> SensorLink <--> r1.pppg++ if !bottleneckSensor;
-        ncs.gSensor <--> SensorLink <--> r2.pppg++ if bottleneckSensor;
+        ncs.gActor <--> ActorLink <--> ic1.pppg++ if !bottleneckActor;
+        ncs.gActor <--> ActorLink <--> ic2.pppg++ if bottleneckActor;
+        ncs.gController <--> ControllerLink <--> ic1.pppg++;
+        ncs.gSensor <--> SensorLink <--> ic1.pppg++ if !bottleneckSensor;
+        ncs.gSensor <--> SensorLink <--> ic2.pppg++ if bottleneckSensor;
 
         // Connect cross traffic hosts to routers r1/r2 
-        crossHostA.pppg++ <--> CrossLinkA <--> r1.pppg++;
-        crossHostB.pppg++ <--> CrossLinkB <--> r2.pppg++;
+        crossHostA.pppg++ <--> CrossLinkA <--> ic1.pppg++;
+        crossHostB.pppg++ <--> CrossLinkB <--> ic2.pppg++;
 }

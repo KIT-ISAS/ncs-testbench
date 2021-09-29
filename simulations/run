@@ -1,7 +1,1 @@
-#!/bin/bash
-
-cd `dirname $0`
-
-../src/ncs-testbench -n ../src:.:../../inet/examples:../../inet/src:../../inet/tutorials:../../libncs_omnet/simulations:../../libncs_omnet/src:../../matlab-scheduler/src -l ../../inet/src/INET --debug-on-errors=false examples.ini $*
-
-# for shared lib, use: opp_run -l ../src/ncs_testbench -n .:../src $*
+run-testbench

@@ -13,18 +13,28 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package ncs_testbench.simulations;
+package ncs_testbench.networks;
 
-import inet.networklayer.configurator.ipv4.IPv4NetworkConfigurator;
-import inet.node.inet.Router;
+import inet.networklayer.configurator.ipv6.FlatNetworkConfigurator6;
+import libncs_omnet.OracleCC.OracleCCCoordinator;
+import inet.node.ipv6.Router6;
 import libncs_omnet.NcsInstance;
-import libncs_omnet.NcsManager;
 import libncs_omnet.util.RandomizedChannel;
 
 
 network TheoreticalNcs
 {
     @display("bgb=355,275");
+
+    // Tuneables
+
+    bool useOracleCC = default(false);
+    double networkSetupTime @unit("s") = default(20s);
+    double ncsStartupDelay @unit("s") = default(30s);
+
+    // NCS network startup delay
+    ncs.ncsContext.networkStartupPollInterval = networkSetupTime;
+
     types:
         channel ActorLink extends RandomizedChannel
         {
@@ -35,19 +45,21 @@ network TheoreticalNcs
             @defaultname("sensorLink");
         }
     submodules:
-        // Responsible to set up the MATLAB part of the simulation 
-        NcsManager: NcsManager {
-            @display("p=45,39");
-        }
         // Configure some routes automagically
-        configurator: IPv4NetworkConfigurator {
+        configurator: FlatNetworkConfigurator6 {
             @display("p=45,101");
+        }
+        // OracleCC managing instance
+        oracleCCCoordinator: OracleCCCoordinator if useOracleCC {
+            @display("p=45,189");
         }
         // A NCS
         ncs: NcsInstance {
             @display("p=193,109");
+
+            ncsContext.startupDelay = default(ncsStartupDelay);
         }
-        router: Router {
+        router: Router6 {
             @display("p=191,203");
         }
     connections:

@@ -1,0 +1,27 @@
+#!/bin/bash
+
+cd `dirname $0`
+
+BINARY=$( ls -1c ../src/ncs-testbench* | head -n 1 )
+
+if [ -z "$BINARY" ]; then
+	echo "error: ncs-testbench binary not found"
+	
+	exit 1
+fi
+
+echo "found ncs-testbench at $BINARY" 1>&2
+
+# debugging tool configurations
+CALLGRIND="valgrind --tool=callgrind"
+VALGRIND="valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --log-file=valgrind-out.txt"
+ASAN="env LD_PRELOAD=$(mlocate --regex 'libasan.so.4$') ASAN_OPTIONS=halt_on_error=0,new_delete_type_mismatch=0,alloc_dealloc_mismatch=0"
+
+# tool selection
+#TOOL="$CALLGRIND"
+#TOOL="$VALGRIND"
+#TOOL="$ASAN"
+
+$TOOL "$BINARY" -n ../src:../networks:.:../../inet/examples:../../inet/src:../../libncs_omnet/src:../../matlab-scheduler/src -l ../../inet/src/INET --debug-on-errors=false $*
+
+# for shared lib, use: opp_run -l ../src/ncs_testbench -n .:../src $*

@@ -1,7 +1,11 @@
 Makefile
-/.computed/
-/simulations/*.anf
-/simulations/.*
-/simulations/results/
-/out/
 
+/.computed/
+/simulations/**/.*
+
+/simulations/**/*.anf
+/simulations/**/logs/
+/simulations/**/plots/
+/simulations/**/results*/
+
+/src/ncs-testbench*
